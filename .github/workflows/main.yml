@@ -63,7 +63,7 @@ jobs:
       - name: Check Copilot via suggestedActors (CORRECTED)
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PAT_FOR_INFORMATICA_MIGRATION }}
+          github-token: "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"
           script: |
             const result = await github.graphql(
               `
