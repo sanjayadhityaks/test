@@ -1,0 +1,124 @@
+name: Get Repo & Copilot IDs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+
+    steps:
+      - name: Get Repo ID
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = await github.graphql(
+              `
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  id
+                }
+              }
+              `,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              }
+            );
+
+            console.log("REPO_ID =", result.repository.id);
+
+      - name: Debug assignable users (optional)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = await github.graphql(
+              `
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  assignableUsers(first: 50) {
+                    nodes {
+                      login
+                    }
+                  }
+                }
+              }
+              `,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              }
+            );
+
+            console.log("Assignable users:");
+            result.repository.assignableUsers.nodes.forEach(u =>
+              console.log("-", u.login)
+            );
+
+      - name: Check Copilot via suggestedActors (CORRECTED)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_FOR_INFORMATICA_MIGRATION }}
+          script: |
+            const result = await github.graphql(
+              `
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  suggestedActors(
+                    capabilities: [CAN_BE_ASSIGNED]
+                    first: 100
+                  ) {
+                    nodes {
+                      login
+                      __typename
+                      ... on Bot { id }
+                      ... on User { id }
+                    }
+                  }
+                }
+              }
+              `,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                headers: {
+                  // This header is mandatory as of late 2025
+                  "GraphQL-Features": "issues_copilot_assignment_api_support"
+                }
+              }
+            );
+
+            const actors = result.repository.suggestedActors.nodes;
+
+              console.log(" Suggested Actors (CAN_BE_ASSIGNED):");
+              console.log("Total:", actors.length);
+              console.log("----------------------------------");
+
+              actors.forEach((actor, index) => {
+                console.log(
+                  `${index + 1}. login=${actor.login} | type=${actor.__typename} | id=${actor.id}`
+                );
+              });
+
+              console.log("----------------------------------");
+
+            const copilot = result.repository.suggestedActors.nodes.find(
+              a => a.login === "copilot-swe-agent"
+            );
+
+            if (copilot) {
+              console.log("Copilot FOUND");
+              console.log("COPILOT_AGENT_ID =", copilot.id);
+              // Store this ID for the next job if needed
+              core.setOutput("agent_id", copilot.id);
+            } else {
+              console.log("Copilot NOT visible. Possible reasons:");
+              console.log("1. PAT owner doesn't have a Copilot license.");
+              console.log("2. 'Copilot for Issues' is not enabled in Repo Settings.");
+              console.log("3. The 'GraphQL-Features' header was missing.");
+            }
